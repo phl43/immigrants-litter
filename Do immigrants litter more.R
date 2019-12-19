@@ -8,8 +8,7 @@ cps <- read_csv("acs2017.csv")
 
 # compute the percentage of immigrants in each CBSA
 cps_cbsa <- cps %>%
-  mutate(immigrant = CITIZEN %in% c(2,3),
-         immigrant_latin_america = CITIZEN %in% c(2,3) & BPL %in% c(200, 210, 250, 299, 300)) %>%
+  mutate(immigrant = CITIZEN %in% c(2,3)) %>%
   group_by(MET2013) %>%
   summarize(percent_immigrant = sum(immigrant * PERWT) / sum(PERWT)) %>%
   rename(CBSA = MET2013)
@@ -23,6 +22,7 @@ ahs <- read_csv("ahs2017.csv") %>%
          NEARTRASH,
          HINCP,
          HHGRAD,
+         BLD,
          OMB13CBSA,
          WEIGHT,
          starts_with("REPWEIGHT"))
@@ -35,6 +35,7 @@ ahs$HHRACE <- as.integer(str_match(ahs$HHRACE, "\'(.*)\'")[, 2])
 ahs$HHSPAN <- as.integer(str_match(ahs$HHSPAN, "\'(.*)\'")[, 2])
 ahs$HHCITSHP <- as.integer(str_match(ahs$HHCITSHP, "\'(.*)\'")[, 2])
 ahs$HHGRAD <- as.integer(str_match(ahs$HHGRAD, "\'(.*)\'")[, 2])
+ahs$BLD <- factor(str_match(ahs$BLD, "\'(.*)\'")[, 2])
 ahs$OMB13CBSA <- as.integer(str_match(ahs$OMB13CBSA, "\'(.*)\'")[, 2])
 
 # create a variable indicating whether there was a small or large amount of
@@ -210,6 +211,9 @@ svy <- svrepdesign(data = ahs,
                    rho = 0.5,
                    mse = TRUE)
 
+# uncomment to restrict the analysis to people who live in metropolitan areas
+# svy <- subset(svy, OMB13CBSA != "99999")
+
 natives <- subset(svy, IMMIGRANT == FALSE)
 immigrants <- subset(svy, IMMIGRANT == TRUE)
 white_immigrants <- subset(svy, WHITE_IMMIGRANT == TRUE)
@@ -365,19 +369,24 @@ model2 <- svyglm(ANYTRASH ~ REGION_OF_ORIGIN,
                          design = svy,
                          family = quasibinomial(link = "logit"))
 
-model3 <- svyglm(ANYTRASH ~ REGION_OF_ORIGIN + OMB13CBSA,
+model3 <- svyglm(ANYTRASH ~ REGION_OF_ORIGIN + BLD,
+                 design = svy,
+                 family = quasibinomial(link = "logit"))
+
+model4 <- svyglm(ANYTRASH ~ REGION_OF_ORIGIN + BLD + OMB13CBSA,
                          design = svy,
                          family = quasibinomial(link = "logit"))
 
-model4 <- svyglm(ANYTRASH ~ REGION_OF_ORIGIN + OMB13CBSA + HINCP + HHGRAD,
+model5 <- svyglm(ANYTRASH ~ REGION_OF_ORIGIN + BLD + OMB13CBSA + HINCP + HHGRAD,
                          design = svy,
                          family = quasibinomial(link = "logit"))
 
 models <- list()
 models[["Basic model"]] <- model1
 models[["With region of origin"]] <- model2
-models[["With region of origin and CBSA fixed effects"]] <- model3
-models[["With region of origin, CBSA fixed effects, income and education"]] <- model4
+models[["With region of origin and type of housing unit"]] <- model3
+models[["With region of origin, type of housing unit and CBSA fixed effects"]] <- model4
+models[["With region of origin, type of housing unit, CBSA fixed effects, income and education"]] <- model5
 
 cm <- c(
   "IMMIGRANTTRUE" = "Immigrant",
@@ -420,8 +429,9 @@ msummary(models,
         `term`,
         `Basic model`,
         `With region of origin`,
-        `With region of origin and CBSA fixed effects`,
-        `With region of origin, CBSA fixed effects, income and education`
+        `With region of origin and type of housing unit`,
+        `With region of origin, type of housing unit and CBSA fixed effects`,
+        `With region of origin, type of housing unit, CBSA fixed effects, income and education`
         )
     )
   ) %>%
@@ -433,8 +443,9 @@ msummary(models,
       columns = vars(
         `Basic model`,
         `With region of origin`,
-        `With region of origin and CBSA fixed effects`,
-        `With region of origin, CBSA fixed effects, income and education`
+        `With region of origin and type of housing unit`,
+        `With region of origin, type of housing unit and CBSA fixed effects`,
+        `With region of origin, type of housing unit, CBSA fixed effects, income and education`
       )
     )
   ) %>%
@@ -454,28 +465,33 @@ msummary(models,
 #     locations = cells_stub(rows = c(11, 13, 15, 17))
 #   )
 
-model5 <- svyglm(ANYTRASH ~ IMMIGRANT + RACE,
+model6 <- svyglm(ANYTRASH ~ IMMIGRANT + RACE,
                  design = svy,
                  family = quasibinomial(link = "logit"))
 
-model6 <- svyglm(ANYTRASH ~ IMMIGRANT * RACE,
+model7 <- svyglm(ANYTRASH ~ IMMIGRANT * RACE,
                  design = svy,
                  family = quasibinomial(link = "logit"))
 
-model7 <- svyglm(ANYTRASH ~ IMMIGRANT * RACE + OMB13CBSA,
+model8 <- svyglm(ANYTRASH ~ IMMIGRANT * RACE + BLD,
                  design = svy,
                  family = quasibinomial(link = "logit"))
 
-model8 <- svyglm(ANYTRASH ~ IMMIGRANT * RACE + OMB13CBSA + HINCP + HHGRAD,
+model9 <- svyglm(ANYTRASH ~ IMMIGRANT * RACE + BLD + OMB13CBSA,
+                 design = svy,
+                 family = quasibinomial(link = "logit"))
+
+model10 <- svyglm(ANYTRASH ~ IMMIGRANT * RACE + BLD + OMB13CBSA + HINCP + HHGRAD,
        design = svy,
        family = quasibinomial(link = "logit"))
 
 models <- list()
 models[["Basic model"]] <- model1
-models[["With race/ethnicity"]] <- model5
-models[["With race/ethnicity and interaction between immigrant and race/ethnicity"]] <- model6
-models[["With race/ethnicity, interaction between immigrant and race/ethnicity and CBSA fixed effects"]] <- model7
-models[["With race/ethnicity, interaction between immigrant and race/ethnicity, CBSA fixed effects, income and education"]] <- model8
+models[["With race/ethnicity"]] <- model6
+models[["With race/ethnicity and interaction between immigrant and race/ethnicity"]] <- model7
+models[["With race/ethnicity, interaction between immigrant and race/ethnicity and type of housing unit"]] <- model8
+models[["With race/ethnicity, interaction between immigrant and race/ethnicity, type of housing unit and CBSA fixed effects"]] <- model9
+models[["With race/ethnicity, interaction between immigrant and race/ethnicity, type of housing unit, CBSA fixed effects, income and education"]] <- model10
 
 msummary(models,
          title = "Summary of logistic regression analysis for variables predicting that a householder will say there is a small or large amount of trash, litter or junk in streets, lots or properties within 1/2 block of where they live",
@@ -494,8 +510,9 @@ msummary(models,
         `Basic model`,
         `With race/ethnicity`,
         `With race/ethnicity and interaction between immigrant and race/ethnicity`,
-        `With race/ethnicity, interaction between immigrant and race/ethnicity and CBSA fixed effects`,
-        `With race/ethnicity, interaction between immigrant and race/ethnicity, CBSA fixed effects, income and education`
+        `With race/ethnicity, interaction between immigrant and race/ethnicity and type of housing unit`,
+        `With race/ethnicity, interaction between immigrant and race/ethnicity, type of housing unit and CBSA fixed effects`,
+        `With race/ethnicity, interaction between immigrant and race/ethnicity, type of housing unit, CBSA fixed effects, income and education`
       )
     )
   ) %>%
@@ -508,8 +525,9 @@ msummary(models,
         `Basic model`,
         `With race/ethnicity`,
         `With race/ethnicity and interaction between immigrant and race/ethnicity`,
-        `With race/ethnicity, interaction between immigrant and race/ethnicity and CBSA fixed effects`,
-        `With race/ethnicity, interaction between immigrant and race/ethnicity, CBSA fixed effects, income and education`
+        `With race/ethnicity, interaction between immigrant and race/ethnicity and type of housing unit`,
+        `With race/ethnicity, interaction between immigrant and race/ethnicity, type of housing unit and CBSA fixed effects`,
+        `With race/ethnicity, interaction between immigrant and race/ethnicity, type of housing unit, CBSA fixed effects, income and education`
       )
     )
   ) %>%
