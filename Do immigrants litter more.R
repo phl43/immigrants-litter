@@ -46,6 +46,15 @@ ahs$ANYTRASH <- case_when(
   TRUE ~ NA
 )
 
+ahs$NEARTRASH <- case_when(
+  ahs$NEARTRASH == 1 ~ 1L,
+  ahs$NEARTRASH == 2 ~ 2L,
+  ahs$NEARTRASH == 3 ~ 0L,
+  TRUE ~ NA_integer_
+)
+
+ahs$NEARTRASH <- factor(ahs$NEARTRASH)
+
 # compute the percentage of people who say they live near trash in each CBSA
 ahs_cbsa <- ahs %>%
   group_by(OMB13CBSA) %>%
@@ -68,6 +77,7 @@ models <- list()
 models[["Model replicating Cato's result"]] <- replication_cato
 
 msummary(models,
+         output = "gt",
          title = "Summary of linear regression analysis of the proportion of people in a CBSA who say there is a small or large amount of trash, litter or junk in streets, lots or properties within 1/2 block of where they live on the proportion of immigrants in that CBSA",
          coef_map = cm,
          gof_omit = ".*",
@@ -77,9 +87,9 @@ msummary(models,
     style = list(
       cell_text(align = "center")
     ),
-    locations = cells_data(
+    locations = cells_body(
       columns = vars(
-        `term`,
+        ` `,
         `Model replicating Cato's result`
       )
     )
@@ -163,7 +173,6 @@ ahs$HHGRAD <- cut(ahs$HHGRAD,
                   labels = c("Less than high school", "High school", "College"),
                   right = FALSE,
                   include.lowest = TRUE)
-ahs$HHCITSHP <- relevel(ahs$HHCITSHP, ref = "Native")
 
 # create a variable indicating whether the householder was born a non-citizen abroad
 ahs$IMMIGRANT <- (ahs$HHCITSHP == "Foreign-born, non-citizen" | ahs$HHCITSHP == "Foreign-born, naturalized")
@@ -203,7 +212,8 @@ ahs$REGION_OF_ORIGIN <- factor(
 # recode the CBSA variable as a factor for the logistic regression analysis
 ahs$OMB13CBSA <- factor(ahs$OMB13CBSA)
 
-# https://stackoverflow.com/questions/59376992/how-to-use-survey-to-analyze-the-american-housing-survey-data-using-replicate-we
+# see https://stackoverflow.com/questions/59376992/how-to-use-survey-to-analyze-the-american-housing-survey-data-using-replicate-we
+# and https://twitter.com/phl43/status/1208567900635910146
 svy <- svrepdesign(data = ahs,
                    weight = ~WEIGHT,
                    repweights = "REPWEIGHT[0-9]+",
@@ -381,12 +391,40 @@ model5 <- svyglm(ANYTRASH ~ REGION_OF_ORIGIN + BLD + OMB13CBSA + HINCP + HHGRAD,
                          design = svy,
                          family = quasibinomial(link = "logit"))
 
-models <- list()
-models[["Basic model"]] <- model1
-models[["With region of origin"]] <- model2
-models[["With region of origin and type of housing unit"]] <- model3
-models[["With region of origin, type of housing unit and CBSA fixed effects"]] <- model4
-models[["With region of origin, type of housing unit, CBSA fixed effects, income and education"]] <- model5
+model6 <- svyglm(ANYTRASH ~ IMMIGRANT + RACE,
+                 design = svy,
+                 family = quasibinomial(link = "logit"))
+
+model7 <- svyglm(ANYTRASH ~ IMMIGRANT * RACE,
+                 design = svy,
+                 family = quasibinomial(link = "logit"))
+
+model8 <- svyglm(ANYTRASH ~ IMMIGRANT * RACE + BLD,
+                 design = svy,
+                 family = quasibinomial(link = "logit"))
+
+model9 <- svyglm(ANYTRASH ~ IMMIGRANT * RACE + BLD + OMB13CBSA,
+                 design = svy,
+                 family = quasibinomial(link = "logit"))
+
+model10 <- svyglm(ANYTRASH ~ IMMIGRANT * RACE + BLD + OMB13CBSA + HINCP + HHGRAD,
+                  design = svy,
+                  family = quasibinomial(link = "logit"))
+
+models1 <- list()
+models1[["Basic model"]] <- model1
+models1[["With region of origin"]] <- model2
+models1[["With region of origin and type of housing unit"]] <- model3
+models1[["With region of origin, type of housing unit and CBSA fixed effects"]] <- model4
+models1[["With region of origin, type of housing unit, CBSA fixed effects, income and education"]] <- model5
+
+models2 <- list()
+models2[["Basic model"]] <- model1
+models2[["With race/ethnicity"]] <- model6
+models2[["With race/ethnicity and interaction between immigrant and race/ethnicity"]] <- model7
+models2[["With race/ethnicity, interaction between immigrant and race/ethnicity and type of housing unit"]] <- model8
+models2[["With race/ethnicity, interaction between immigrant and race/ethnicity, type of housing unit and CBSA fixed effects"]] <- model9
+models2[["With race/ethnicity, interaction between immigrant and race/ethnicity, type of housing unit, CBSA fixed effects, income and education"]] <- model10
 
 cm <- c(
   "IMMIGRANTTRUE" = "Immigrant",
@@ -413,10 +451,14 @@ gof$omit[gof$raw != "nobs"] <- TRUE
 gof$clean[gof$raw == "nobs"] <- "N"
 gof$omit[gof$raw == "nobs"] <- FALSE
 
-msummary(models,
+# for some reason, probably some kind of conflict between modelsummary and
+# survey, msummary produces an error unless I remove svy before calling it
+rm(svy)
+
+msummary(models1,
+         output = "gt",
          title = "Summary of logistic regression analysis for variables predicting that a householder will say there is a small or large amount of trash, litter or junk in streets, lots or properties within 1/2 block of where they live",
          coef_map = cm,
-         notes = list("The reference category for region of origin is Europe, Australia, Canada or New-Zealand and, for education, it's people who didn't graduate high school."),
          gof_map = gof,
          statistic = "std.error",
          stars = TRUE) %>%
@@ -424,15 +466,15 @@ msummary(models,
     style = list(
       cell_text(align = "center")
     ),
-    locations = cells_data(
+    locations = cells_body(
       columns = vars(
-        `term`,
+        ` `,
         `Basic model`,
         `With region of origin`,
         `With region of origin and type of housing unit`,
         `With region of origin, type of housing unit and CBSA fixed effects`,
         `With region of origin, type of housing unit, CBSA fixed effects, income and education`
-        )
+      )
     )
   ) %>%
   tab_style(
@@ -448,55 +490,53 @@ msummary(models,
         `With region of origin, type of housing unit, CBSA fixed effects, income and education`
       )
     )
+  ) %>%
+  tab_footnote(
+    footnote = "The reference category is native.",
+    locations = cells_body(rows = 1, columns = 1)
+  ) %>%
+  tab_footnote(
+    footnote = "The reference category is Europe, Australia, Canada or New-Zealand.",
+    locations = cells_body(rows = 3, columns = 1)
+  ) %>%
+  tab_footnote(
+    footnote = "The reference category is Europe, Australia, Canada or New-Zealand.",
+    locations = cells_body(rows = 5, columns = 1)
+  ) %>%
+  tab_footnote(
+    footnote = "The reference category is Europe, Australia, Canada or New-Zealand.",
+    locations = cells_body(rows = 7, columns = 1)
+  ) %>%
+  tab_footnote(
+    footnote = "The reference category is Europe, Australia, Canada or New-Zealand.",
+    locations = cells_body(rows = 9, columns = 1)
+  ) %>%
+  tab_footnote(
+    footnote = "The reference category is Europe, Australia, Canada or New-Zealand.",
+    locations = cells_body(rows = 11, columns = 1)
+  ) %>%
+  tab_footnote(
+    footnote = "The reference category is Europe, Australia, Canada or New-Zealand.",
+    locations = cells_body(rows = 13, columns = 1)
+  ) %>%
+  tab_footnote(
+    footnote = "The reference category is Europe, Australia, Canada or New-Zealand.",
+    locations = cells_body(rows = 15, columns = 1)
+  ) %>%
+  tab_footnote(
+    footnote = "The reference category is less than high school.",
+    locations = cells_body(rows = 19, columns = 1)
+  ) %>%
+  tab_footnote(
+    footnote = "The reference category is less than high school.",
+    locations = cells_body(rows = 21, columns = 1)
   ) %>%
   gtsave("Do immigrants litter more - Table 2.png")
 
-# %>%
-#   tab_footnote(                                                                                                                                                                               
-#     footnote = "The reference category is native.",                                                                                           
-#     locations = cells_stub(rows = vars(`Immigrant`))
-#   ) %>%
-#   tab_footnote(                                                                                                                                                                               
-#     footnote = "The reference category is less than high school.",                                                                                           
-#     locations = cells_stub(rows = vars(`High school`, `College`))
-#   ) %>%
-#   tab_footnote(                                                                                                                                                                               
-#     footnote = "The reference category is white.",                                                                                           
-#     locations = cells_stub(rows = c(11, 13, 15, 17))
-#   )
-
-model6 <- svyglm(ANYTRASH ~ IMMIGRANT + RACE,
-                 design = svy,
-                 family = quasibinomial(link = "logit"))
-
-model7 <- svyglm(ANYTRASH ~ IMMIGRANT * RACE,
-                 design = svy,
-                 family = quasibinomial(link = "logit"))
-
-model8 <- svyglm(ANYTRASH ~ IMMIGRANT * RACE + BLD,
-                 design = svy,
-                 family = quasibinomial(link = "logit"))
-
-model9 <- svyglm(ANYTRASH ~ IMMIGRANT * RACE + BLD + OMB13CBSA,
-                 design = svy,
-                 family = quasibinomial(link = "logit"))
-
-model10 <- svyglm(ANYTRASH ~ IMMIGRANT * RACE + BLD + OMB13CBSA + HINCP + HHGRAD,
-       design = svy,
-       family = quasibinomial(link = "logit"))
-
-models <- list()
-models[["Basic model"]] <- model1
-models[["With race/ethnicity"]] <- model6
-models[["With race/ethnicity and interaction between immigrant and race/ethnicity"]] <- model7
-models[["With race/ethnicity, interaction between immigrant and race/ethnicity and type of housing unit"]] <- model8
-models[["With race/ethnicity, interaction between immigrant and race/ethnicity, type of housing unit and CBSA fixed effects"]] <- model9
-models[["With race/ethnicity, interaction between immigrant and race/ethnicity, type of housing unit, CBSA fixed effects, income and education"]] <- model10
-
-msummary(models,
+msummary(models2,
+         output = "gt",
          title = "Summary of logistic regression analysis for variables predicting that a householder will say there is a small or large amount of trash, litter or junk in streets, lots or properties within 1/2 block of where they live",
          coef_map = cm,
-         notes = list("The reference category for race/ethnicity is Non-Hispanic White and, for education, it's people who didn't graduate high school."),
          gof_map = gof,
          statistic = "std.error",
          stars = TRUE) %>%
@@ -504,9 +544,9 @@ msummary(models,
     style = list(
       cell_text(align = "center")
     ),
-    locations = cells_data(
+    locations = cells_body(
       columns = vars(
-        `term`,
+        ` `,
         `Basic model`,
         `With race/ethnicity`,
         `With race/ethnicity and interaction between immigrant and race/ethnicity`,
@@ -530,5 +570,29 @@ msummary(models,
         `With race/ethnicity, interaction between immigrant and race/ethnicity, type of housing unit, CBSA fixed effects, income and education`
       )
     )
+  ) %>%
+  tab_footnote(
+    footnote = "The reference category is native.",
+    locations = cells_body(rows = 1, columns = 1)
+  ) %>%
+  tab_footnote(
+    footnote = "The reference category is white.",
+    locations = cells_body(rows = 3, columns = 1)
+  ) %>%
+  tab_footnote(
+    footnote = "The reference category is white.",
+    locations = cells_body(rows = 5, columns = 1)
+  ) %>%
+  tab_footnote(
+    footnote = "The reference category is white.",
+    locations = cells_body(rows = 7, columns = 1)
+  ) %>%
+  tab_footnote(
+    footnote = "The reference category is less than high school.",
+    locations = cells_body(rows = 17, columns = 1)
+  ) %>%
+  tab_footnote(
+    footnote = "The reference category is less than high school.",
+    locations = cells_body(rows = 19, columns = 1)
   ) %>%
   gtsave("Do immigrants litter more - Table 3.png")
